@@ -4,59 +4,95 @@ from supabase import create_client, Client
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://lqgkytfaaisubgemgved.supabase.co")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "sb_publishable_XU_qqEJD90xA02LKWC1Xhg_Aj0xQ...")
-
-ADZUNA_APP_ID = os.environ.get("ADZUNA_APP_ID", "").strip()
-ADZUNA_APP_KEY = os.environ.get("ADZUNA_APP_KEY", "").strip()
+APIFY_TOKEN = os.environ.get("APIFY_API_TOKEN", "")
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-def testar_conexao_adzuna():
-    # URL ultra simplificada para testar se a API responde qualquer coisa
-    url = f"https://api.adzuna.com/v1/api/jobs/br/search/1?app_id={ADZUNA_APP_ID}&app_key={ADZUNA_APP_KEY}&results_per_page=5&content-type=json"
-    
-    print(f"Testando conexão com App ID: [{ADZUNA_APP_ID}]")
+def calcular_match_score(descricao_vaga, titulo_vaga):
+    score = 60
+    texto_completo = f"{titulo_vaga} {descricao_vaga}".lower()
+    tags = []
+    for kw in ["sap", "s&op", "mrp", "lean", "power bi", "excel", "kaizen"]:
+        if kw in texto_completo:
+            score += 10
+            tags.append(kw.upper())
+    return min(score, 100), tags if tags else ["Supply Chain", "PCP"]
+
+def limpar_tabela():
+    print("Limpando registros antigos do Supabase...")
     try:
-        response = requests.get(url, timeout=15)
-        print(f"Status HTTP: {response.status_code}")
-        print(f"Resposta bruta (primeiros 300 caracteres): {response.text[:300]}")
-        
-        if response.status_code == 200:
-            dados = response.json()
-            resultados = dados.get("results", [])
-            print(f"Sucesso! A API retornou {len(resultados)} vagas no teste geral.")
-            return resultados
-        else:
-            print(f"A API recusou a requisição. Verifique se as Secrets estão corretas.")
-            return []
+        supabase.table("vagas").delete().neq("id", 0).execute()
+        print("Tabela limpa com sucesso.")
     except Exception as e:
-        print(f"Erro crítico de requisição: {e}")
-        return []
+        print(f"Erro ao limpar tabela: {e}")
+
+def buscar_vagas_apify():
+    vagas_coletadas = []
+    # Usando o ator padrão de Google Search ou Web Scraper genérico do Apify
+    actor_id = "apify~google-search-scraper"
+    url_apify = f"https://api.apify.com/v2/acts/{actor_id}/run-sync-get-dataset-items?token={APIFY_TOKEN}"
+    
+    payload = {
+        "queries": "vaga pcp sao paulo site:gupy.io OR vaga supply chain sao paulo",
+        "maxPagesPerQuery": 1,
+        "resultsPerPage": 10
+    }
+    
+    print("Disparando extração via Apify...")
+    try:
+        response = requests.post(url_apify, json=payload, timeout=60)
+        print(f"Status HTTP Apify: {response.status_code}")
+        
+        if response.status_code in [200, 201]:
+            dados = response.json()
+            print(f"-> Itens retornados pelo Apify: {len(dados)}")
+            
+            for item in dados:
+                # O Google Search Scraper retorna organic results
+                organic = item.get("organicResults", [])
+                for result in organic:
+                    titulo = result.get("title", "Oportunidade Industrial")
+                    link = result.get("url", "")
+                    descricao = result.get("description", "Vaga indexada via Apify.")
+                    
+                    empresa = "Empresa Parceira SP"
+                    if "gupy.io" in link:
+                        partes = link.split("/")
+                        if len(partes) > 2:
+                            empresa = partes[2].split(".")[0].capitalize()
+                            
+                    score, tags = calcular_match_score(descricao, titulo)
+                    
+                    if link:
+                        vagas_coletadas.append({
+                            "titulo": titulo,
+                            "empresa": empresa,
+                            "cidade": "São Paulo - SP",
+                            "match_score": score,
+                            "tags": tags,
+                            "link_da_vaga": link,
+                            "descricao": descricao[:300]
+                        })
+        else:
+            print(f"Erro na execução do Apify: {response.text}")
+    except Exception as e:
+        print(f"Erro de conexão com o Apify: {e}")
+
+    return vagas_coletadas
 
 if __name__ == "__main__":
-    vagas_brutas = testar_conexao_adzuna()
+    vagas = buscar_vagas_apify()
+    print(f"Total de vagas válidas processadas: {len(vagas)}")
     
-    if vagas_brutas:
-        print("Limpando tabela do Supabase...")
-        try:
-            supabase.table("vagas").delete().neq("id", 0).execute()
-        except Exception as e:
-            print(f"Erro ao limpar: {e}")
-            
-        print("Inserindo vagas de teste no Supabase...")
-        for item in vagas_brutas:
-            vaga_formatada = {
-                "titulo": item.get("title", "").replace("<strong>", "").replace("</strong>", ""),
-                "empresa": item.get("company", {}).get("display_name", "Empresa"),
-                "cidade": "São Paulo - SP",
-                "match_score": 85,
-                "tags": ["Supply Chain", "PCP"],
-                "link_da_vaga": item.get("redirect_url", "https://www.adzuna.com.br"),
-                "descricao": item.get("description", "Vaga indexada pelo Adzuna.")[:300]
-            }
+    if vagas:
+        limpar_tabela()
+        print("Salvando novas vagas reais no Supabase...")
+        for vaga in vagas:
             try:
-                supabase.table("vagas").insert(vaga_formatada).execute()
-                print(f"Inserida com sucesso: {vaga_formatada['titulo']}")
+                supabase.table("vagas").insert(vaga).execute()
+                print(f"Inserida: {vaga['titulo']} ({vaga['empresa']})")
             except Exception as e:
-                print(f"Erro ao inserir no Supabase: {e}")
+                print(f"Erro ao inserir vaga: {e}")
+        print("Processo concluído com sucesso!")
     else:
-        print("Nenhum dado retornado pela API para salvar.")
+        print("Nenhuma vaga retornada pelo Apify nesta execução.")
