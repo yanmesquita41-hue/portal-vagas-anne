@@ -122,14 +122,15 @@ def buscar_rapidapi():
     print("Iniciando varredura na RapidAPI (JSearch)...")
     vagas_coletadas = []
     
+    # Consultas unificadas no formato ideal da JSearch (cargo + local)
     queries = [
-        "Analista de PCP Campinas",
-        "Supply Chain Sênior São Paulo",
-        "Planejador de Produção Jundiaí",
-        "Analista de S&OP Sorocaba",
-        "Coordenador de PCP Joinville",
-        "Supply Chain Curitiba",
-        "Production Planner São José dos Campos"
+        "Analista de PCP em Campinas, SP",
+        "Supply Chain Senior em Sao Paulo, SP",
+        "Planejador de Producao em Jundiai, SP",
+        "Analista de S&OP em Sorocaba, SP",
+        "Coordenador de PCP em Joinville, SC",
+        "Supply Chain em Curitiba, PR",
+        "Production Planner em Sao Jose dos Campos, SP"
     ]
     
     url = "https://jsearch.p.rapidapi.com/search"
@@ -170,11 +171,10 @@ def buscar_rapidapi():
 if __name__ == "__main__":
     print("Executando agregador multi-API (Adzuna + RapidAPI)...")
     
-    # Coleta de ambas as fontes
     vagas_adzuna = buscar_adzuna()
     vagas_rapid = buscar_rapidapi()
     
-    # Mescla as listas e remove duplicadas (com base no link ou título/empresa)
+    # Mescla as listas e remove duplicadas com base no link da vaga
     todas_vagas = vagas_adzuna + vagas_rapid
     vagas_unicas = []
     links_vistos = set()
