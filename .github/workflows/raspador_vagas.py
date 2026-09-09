@@ -10,7 +10,7 @@ SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "sb_publishable_XU_qqEJD90xA02LKWC
 ADZUNA_APP_ID = os.environ.get("ADZUNA_APP_ID", "230cd1dd")
 ADZUNA_APP_KEY = os.environ.get("ADZUNA_APP_KEY", "e14f765d02d589d33641de76193782af")
 
-# Credenciais RapidAPI (JSearch) com a chave atualizada
+# Credenciais RapidAPI (JSearch)
 RAPIDAPI_KEY = os.environ.get("RAPIDAPI_KEY", "c4066ea5aamsh6271605b2b5badap11805ejsnca74fcd22568")
 RAPIDAPI_HOST = "jsearch.p.rapidapi.com"
 
@@ -123,6 +123,7 @@ def buscar_rapidapi():
         "Production Planner Brasil"
     ]
     
+    # URL CORRIGIDA COM O ENDPOINT DE PESQUISA /search
     url = "https://jsearch.p.rapidapi.com/search"
     headers = {
         "X-RapidAPI-Key": RAPIDAPI_KEY,
@@ -140,7 +141,9 @@ def buscar_rapidapi():
         try:
             response = requests.get(url, headers=headers, params=querystring, timeout=10)
             if response.status_code == 200:
-                for item in response.json().get("data", []):
+                data_json = response.json()
+                print(f"DEBUG RapidAPI [{query}]: Status OK, retornou {len(data_json.get('data', []))} itens brutos.")
+                for item in data_json.get("data", []):
                     titulo = item.get("job_title", "")
                     empresa = item.get("employer_name", "Indústria / Empresa")
                     link = item.get("job_apply_link", "") or item.get("job_google_link", "")
@@ -153,6 +156,8 @@ def buscar_rapidapi():
                     vaga = validar_e_filtrar(titulo, empresa, cidade_fmt, descricao, link, pais)
                     if vaga and vaga not in vagas_coletadas:
                         vagas_coletadas.append(vaga)
+            else:
+                print(f"Erro HTTP RapidAPI [{query}]: {response.status_code} - {response.text}")
         except Exception as e:
             print(f"Erro RapidAPI ({query}): {e}")
             
