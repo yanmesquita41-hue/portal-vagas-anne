@@ -1,4 +1,30 @@
-- name: Instalar dependências
-  run: |
-    pip install --upgrade pip
-    pip install duckduckgo_search requests supabase beautifulsoup4
+name: Atualizar Vagas Anne
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 */6 * * *'
+
+jobs:
+  run-scraper:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout do código
+        uses: actions/checkout@v3
+
+      - name: Configurar Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Instalar dependências
+        run: |
+          pip install --upgrade pip
+          pip install duckduckgo_search requests supabase beautifulsoup4
+
+      - name: Executar raspador
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+        run: |
+          python raspador_vagas.py
