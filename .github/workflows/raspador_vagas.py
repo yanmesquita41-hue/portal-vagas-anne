@@ -9,12 +9,11 @@ SERPAPI_KEY = "ea4f413bd1cbe50410cb2d7ccca035e2a74781e45f77b5c3e649e9152d12aecb"
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# Termos focados nos cargos principais da indústria
+# Termos amplos para testar o retorno da API
 TERMOS_BUSCA = [
-    "PCP Campinas", 
-    "Supply Chain São Paulo", 
-    "Planejador de Produção Jundiaí", 
-    "Logística Industrial Sorocaba"
+    "PCP", 
+    "Supply Chain", 
+    "Logística"
 ]
 
 def calcular_match_score(descricao_vaga, titulo_vaga):
@@ -27,14 +26,6 @@ def calcular_match_score(descricao_vaga, titulo_vaga):
             tags.append(kw.upper())
     return min(score, 100), tags if tags else ["Supply Chain", "PCP"]
 
-def limpar_tabela():
-    print("Limpando registros antigos do Supabase...")
-    try:
-        supabase.table("vagas").delete().neq("id", 0).execute()
-        print("Tabela limpa com sucesso.")
-    except Exception as e:
-        print(f"Erro ao limpar tabela: {e}")
-
 def buscar_vagas():
     vagas_coletadas = []
     
@@ -42,33 +33,29 @@ def buscar_vagas():
         print("Erro: SERPAPI_KEY não configurada.")
         return vagas_coletadas
 
-    print("Iniciando busca de vagas...")
+    print("Iniciando varredura de teste na SerpApi...")
     
     for termo in TERMOS_BUSCA:
-        # Busca direta sem restrições complexas para garantir o retorno de resultados pela API
         url = f"https://serpapi.com/search.json?engine=google_jobs&q={quote_plus(termo)}&hl=pt-BR&api_key={SERPAPI_KEY}"
         
         try:
+            print(consultando := f"Consultando SerpApi para o termo: '{termo}'...")
             res = requests.get(url, timeout=15)
+            print(f"Status HTTP da SerpApi: {res.status_code}")
+            
             if res.status_code == 200:
-                resultados = res.json().get("jobs_results", [])
-                print(f"Termo '{termo}': {len(resultados)} vagas encontradas.")
+                dados = res.json()
+                resultados = dados.get("jobs_results", [])
+                print(f"-> Sucesso! Encontradas {len(resultados)} vagas brutas para '{termo}'.")
                 
                 for item in resultados:
                     titulo = item.get("title", "")
                     empresa = item.get("company_name", "Indústria / Empresa")
                     local = item.get("location", "São Paulo - SP")
-                    descricao = item.get("description", "Descrição detalhada da vaga disponível no portal oficial.")
+                    descricao = item.get("description", "Descrição detalhada da vaga.")
                     
                     apply_opts = item.get("apply_options", [])
-                    link = None
-                    
-                    # Pega o primeiro link de candidatura disponível
-                    if apply_opts:
-                        link = apply_opts[0].get("link")
-                        
-                    if not link:
-                        link = "https://www.google.com/search?q=" + quote_plus(f"{titulo} {empresa}")
+                    link = apply_opts[0].get("link") if apply_opts else f"https://www.google.com/search?q={quote_plus(titulo + ' ' + empresa)}"
                         
                     score, tags = calcular_match_score(descricao, titulo)
                     
@@ -81,29 +68,29 @@ def buscar_vagas():
                         "link_da_vaga": link,
                         "descricao": descricao
                     })
+            else:
+                print(f"-> Erro na API da SerpApi. Resposta: {res.text[:200]}")
         except Exception as e:
-            print(f"Erro ao buscar termo '{termo}': {e}")
+            print(f"Erro de conexão ao buscar '{termo}': {e}")
 
-    # Remove duplicatas
-    vagas_unicas = {v['titulo'] + v['empresa']: v for v in vagas_coletadas}.values()
-    return list(vagas_unicas)
+    return vagas_coletadas
 
 def salvar_no_supabase(vagas):
     if not vagas:
-        print("Nenhuma vaga encontrada para salvar.")
+        print("Nenhuma vaga foi coletada para salvar no Supabase.")
         return
 
-    limpar_tabela()
-
-    print(f"Salvando {len(vagas)} vagas no Supabase...")
-    for vaga in vagas:
+    print(f"Tentando salvar {len(vagas)} vagas no Supabase...")
+    for i, vaga in enumerate(vagas):
         try:
-            supabase.table("vagas").insert(vaga).execute()
+            response = supabase.table("vagas").insert(vaga).execute()
+            print(f"Vaga {i+1} salva com sucesso!")
         except Exception as e:
-            print(f"Erro ao inserir vaga: {e}")
+            print(f"ERRO AO INSERIR VAGA NO SUPABASE: {e}")
+            break
 
 if __name__ == "__main__":
     vagas = buscar_vagas()
-    print(f"Total processado: {len(vagas)}")
+    print(f"Total de vagas processadas na memória: {len(vagas)}")
     salvar_no_supabase(vagas)
-    print("Processo finalizado!")
+    print("Processo de teste finalizado.")
