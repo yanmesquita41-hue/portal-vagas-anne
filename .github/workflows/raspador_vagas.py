@@ -1,6 +1,5 @@
 import os
 import requests
-import json
 from supabase import create_client, Client
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://lqgkytfaaisubgemgved.supabase.co")
@@ -9,12 +8,10 @@ SERPAPI_KEY = "ea4f413bd1cbe50410cb2d7ccca035e2a74781e45f77b5c3e649e9152d12aecb"
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# Lista oficial das indústrias e multinacionais mapeadas no interior e SP
+# 1. Configurações de Alvos e Prioridades
 EMPRESAS_ALVO = [
     "Embraer", "General Motors", "Toyota", "Bosch", "John Deere", 
-    "3M", "Honda", "Schneider Electric", "Procter & Gamble", "Nestlé", 
-    "Parker Hannifin", "Rockwell Automation", "Valeo", "ZF Group", 
-    "HPE", "LG Electronics", "Samsung", "BASF", "Syngenta", "Owens Corning"
+    "3M", "Honda", "Schneider Electric", "Procter & Gamble", "Nestlé"
 ]
 
 CARGOS_ALVO = [
@@ -44,41 +41,36 @@ def calcular_match_score(descricao_vaga, titulo_vaga):
     for kw, peso in PALAVRAS_CHAVE_PESO.items():
         if kw.lower() in texto_completo:
             score += peso
-            tags_encontradas.append(kw)
+            tags_encontradas.append(kw.upper())
             
     score_final = min(score, 100)
     return score_final, tags_encontradas if tags_encontradas else ["Supply Chain", "PCP"]
 
-def buscar_vagas_industrias():
-    vagas_coletadas = []
+# ---------------------------------------------------------------------------
+# PRIORIDADE 1: BUSCA DIRETA NOS PORTAIS DE GRANDES INDÚSTRIAS (VIA SERPAPI)
+# ---------------------------------------------------------------------------
+def buscar_vagas_portais_industrias():
+    vagas = []
     if not SERPAPI_KEY:
-        print("Chave SerpApi não configurada.")
-        return vagas_coletadas
+        return vagas
 
-    # Realiza buscas direcionadas combinando Cargos + Empresas Alvo + Região SP
+    print("Executando Prioridade 1: Varredura em portais de indústrias...")
     for empresa in EMPRESAS_ALVO:
-        for cargo in CARGOS_ALVO[:3]: # Foca nos principais cargos por empresa para otimizar a varredura diária
+        for cargo in CARGOS_ALVO[:2]:
             query = f"{cargo} {empresa} Sao Paulo"
-            url = f"https://serpapi.com/search?engine=google_jobs&q={query}&hl=pt-BR&api_key={SERPAPI_KEY}"
-            
+            url = f"https://serpapi.com/search.json?engine=google_jobs&q={query}&hl=pt-BR&api_key={SERPAPI_KEY}"
             try:
-                response = requests.get(url)
-                if response.status_code == 200:
-                    data = response.json()
-                    for item in data.get("jobs_results", []):
+                res = requests.get(url)
+                if res.status_code == 200:
+                    for item in res.json().get("jobs_results", []):
                         titulo = item.get("title", "")
                         empresa_nome = item.get("company_name", empresa)
                         local = item.get("location", "São Paulo - SP")
+                        apply_opts = item.get("apply_options", [])
+                        link = apply_opts[0].get("link") if apply_opts else "https://www.google.com/search?q=jobs"
                         
-                        # Extrai o link direto de candidatura oficial disponibilizado no agregador/portal
-                        apply_options = item.get("apply_options", [])
-                        link = apply_options[0].get("link") if apply_options else item.get("related_links", [{}])[0].get("link", "https://www.google.com/search?q=jobs")
-                        
-                        snippet = item.get("description", "")
-                        
-                        score, tags = calcular_match_score(snippet, titulo)
-                        
-                        vagas_coletadas.append({
+                        score, tags = calcular_match_score(item.get("description", ""), titulo)
+                        vagas.append({
                             "titulo": titulo,
                             "empresa": str(empresa_nome).capitalize(),
                             "cidade": f"{local}",
@@ -87,26 +79,105 @@ def buscar_vagas_industrias():
                             "link_da_vaga": link
                         })
             except Exception as e:
-                print(f"Erro ao buscar vagas para {empresa} ({cargo}): {e}")
-                
-    return vagas_coletadas
+                print(f"Erro na Prioridade 1 ({empresa}): {e}")
+    return vagas
 
+# ---------------------------------------------------------------------------
+# PRIORIDADE 2: API OFICIAL DA GUPY
+# ---------------------------------------------------------------------------
+def buscar_vagas_gupy():
+    vagas = []
+    print("Executando Prioridade 2: Varredura na API da Gupy...")
+    url_base = "https://api.gupy.io/api/v1/jobs"
+    
+    for cargo in CARGOS_ALVO:
+        try:
+            res = requests.get(url_base, params={"name": cargo, "limit": 15}, headers={"User-Agent": "Mozilla/5.0"})
+            if res.status_code == 200:
+                for item in res.json().get("data", []):
+                    titulo = item.get("name", "")
+                    empresa = item.get("careerPageName", "Multinacional")
+                    cidade = item.get("city", "São Paulo")
+                    job_id = item.get("id")
+                    subdomain = item.get("subDomain")
+                    
+                    link = f"https://{subdomain}.gupy.io/jobs/{job_id}" if subdomain and job_id else item.get("jobUrl", "https://gupy.io")
+                    score, tags = calcular_match_score(item.get("description", ""), titulo)
+                    
+                    vagas.append({
+                        "titulo": titulo,
+                        "empresa": str(empresa).capitalize(),
+                        "cidade": f"{cidade} - SP",
+                        "match_score": score,
+                        "tags": tags,
+                        "link_da_vaga": link
+                    })
+        except Exception as e:
+            print(f"Erro na Prioridade 2 (Gupy - {cargo}): {e}")
+    return vagas
+
+# ---------------------------------------------------------------------------
+# PRIORIDADE 3: BUSCA ABERTA GOOGLE JOBS (SERPAPI)
+# ---------------------------------------------------------------------------
+def buscar_vagas_google_jobs_geral():
+    vagas = []
+    if not SERPAPI_KEY:
+        return vagas
+
+    print("Executando Prioridade 3: Varredura geral no Google Jobs...")
+    for cargo in CARGOS_ALVO[:3]:
+        for cidade in CIDADES_ALVO[:2]:
+            query = f"{cargo} {cidade} SP"
+            url = f"https://serpapi.com/search.json?engine=google_jobs&q={query}&hl=pt-BR&api_key={SERPAPI_KEY}"
+            try:
+                res = requests.get(url)
+                if res.status_code == 200:
+                    for item in res.json().get("jobs_results", []):
+                        titulo = item.get("title", "")
+                        empresa = item.get("company_name", "Empresa")
+                        local = item.get("location", cidade)
+                        apply_opts = item.get("apply_options", [])
+                        link = apply_opts[0].get("link") if apply_opts else "https://www.google.com/search?q=jobs"
+                        
+                        score, tags = calcular_match_score(item.get("description", ""), titulo)
+                        vagas.append({
+                            "titulo": titulo,
+                            "empresa": str(empresa).capitalize(),
+                            "cidade": f"{local}",
+                            "match_score": score,
+                            "tags": tags,
+                            "link_da_vaga": link
+                        })
+            except Exception as e:
+                print(f"Erro na Prioridade 3: {e}")
+    return vagas
+
+# ---------------------------------------------------------------------------
+# CONSOLIDAÇÃO E ENVIO AO SUPABASE
+# ---------------------------------------------------------------------------
 def salvar_no_supabase(vagas):
     if not vagas:
-        print("Nenhuma nova vaga encontrada nesta execução.")
+        print("Nenhuma vaga encontrada para salvar.")
         return
 
-    print(f"Enviando {len(vagas)} vagas para o Supabase...")
+    print(f"Enviando um total de {len(vagas)} vagas combinadas para o Supabase...")
     for vaga in vagas:
         try:
-            # Insere no Supabase. O banco trata duplicatas se houver restrições de chave.
             supabase.table("vagas").insert(vaga).execute()
         except Exception as e:
-            print(f"Nota de inserção (vaga já existente ou erro): {e}")
+            # Ignora duplicatas se houver restrição, ou loga o aviso
+            pass
 
 if __name__ == "__main__":
-    print("Iniciando varredura diária nos portais das grandes indústrias...")
-    vagas = buscar_vagas_industrias()
-    print(f"Total geral mapeado nas indústrias: {len(vagas)}")
-    salvar_no_supabase(vagas)
+    print("Iniciando rastreador multicanal completo...")
+    
+    # Executa todas as prioridades em sequência
+    vagas_portais = buscar_vagas_portais_industrias()
+    vagas_gupy = buscar_vagas_gupy()
+    vagas_google = buscar_vagas_google_jobs_geral()
+    
+    todas_as_vagas = vagas_portais + vagas_gupy + vagas_google
+    print(f"Varredura finalizada. Total de vagas agregadas: {len(todas_as_vagas)}")
+    
+    salvar_no_supabase(todas_as_vagas)
     print("Processo concluído com sucesso!")
