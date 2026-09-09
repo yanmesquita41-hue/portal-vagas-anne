@@ -16,12 +16,13 @@ def calcular_match_score(descricao_vaga, titulo_vaga):
         if kw in texto_completo:
             score += 10
             tags.append(kw.upper())
+    # Garante que sempre retorna uma lista (ideal para o tipo text[] do Supabase)
     return min(score, 100), tags if tags else ["Supply Chain", "PCP"]
 
 def limpar_tabela():
     print("Limpando registros antigos do Supabase...")
     try:
-        supabase.table("vagas").delete().neq("id", 0).execute()
+        supabase.table("vagas").delete().neq("id", "00000000-0000-0000-0000-000000000000").execute()
         print("Tabela limpa com sucesso.")
     except Exception as e:
         print(f"Erro ao limpar tabela: {e}")
@@ -67,7 +68,7 @@ def buscar_vagas_apify():
                             "empresa": empresa,
                             "cidade": "São Paulo - SP",
                             "match_score": score,
-                            "tags": ", ".join(tags) if isinstance(tags, list) else tags,
+                            "tags": tags, # Enviando como lista para a coluna text[] do Supabase
                             "link_da_vaga": link,
                             "descricao": descricao[:300]
                         })
@@ -87,7 +88,7 @@ if __name__ == "__main__":
         print("Salvando novas vagas reais no Supabase...")
         for vaga in vagas:
             try:
-                supabase.table("vagas").insert(vaga).execute()
+                resposta = supabase.table("vagas").insert(vaga).execute()
                 print(f"Inserida com sucesso: {vaga['titulo']} ({vaga['empresa']})")
             except Exception as e:
                 print(f"ERRO DO SUPABASE AO INSERIR: {e}")
