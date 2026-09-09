@@ -5,7 +5,6 @@ from supabase import create_client, Client
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://lqgkytfaaisubgemgved.supabase.co")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "sb_publishable_XU_qqEJD90xA02LKWC1Xhg_Aj0xQ...")
 
-# Pega as chaves seguras cadastradas nas Secrets do GitHub
 ADZUNA_APP_ID = os.environ.get("ADZUNA_APP_ID", "")
 ADZUNA_APP_KEY = os.environ.get("ADZUNA_APP_KEY", "")
 
@@ -31,10 +30,10 @@ def limpar_tabela():
 
 def buscar_vagas_adzuna():
     vagas_coletadas = []
-    # Requisição oficial na API do Adzuna filtrando por PCP / Supply Chain em São Paulo
-    url = f"https://api.adzuna.com/v1/api/jobs/br/search/1?app_id={ADZUNA_APP_ID}&app_key={ADZUNA_APP_KEY}&what=PCP%20Supply%20Chain&where=São%20Paulo&content-type=json"
+    # Tornando a busca mais ampla (pesquisando por "Supply Chain" ou "Logística" no estado de SP)
+    url = f"https://api.adzuna.com/v1/api/jobs/br/search/1?app_id={ADZUNA_APP_ID}&app_key={ADZUNA_APP_KEY}&what=Supply%20Chain&where=São%20Paulo&content-type=json"
     
-    print("Consultando vagas reais na API oficial do Adzuna...")
+    print(f"Consultando URL: {url}")
     try:
         response = requests.get(url, timeout=15)
         print(f"Status HTTP Adzuna: {response.status_code}")
@@ -42,11 +41,10 @@ def buscar_vagas_adzuna():
         if response.status_code == 200:
             dados = response.json()
             resultados = dados.get("results", [])
-            print(f"-> {len(resultados)} vagas reais encontradas.")
+            print(f"-> Total bruto retornado pela API: {len(resultados)}")
             
             for item in resultados:
                 titulo = item.get("title", "").replace("<strong>", "").replace("</strong>", "")
-                
                 empresa_obj = item.get("company", {})
                 empresa = empresa_obj.get("display_name", "Empresa Parceira")
                 
@@ -79,7 +77,7 @@ def buscar_vagas_adzuna():
 
 if __name__ == "__main__":
     vagas = buscar_vagas_adzuna()
-    print(f"Total de vagas processadas: {len(vagas)}")
+    print(f"Total de vagas processadas para envio: {len(vagas)}")
     
     if vagas:
         limpar_tabela()
@@ -92,4 +90,4 @@ if __name__ == "__main__":
                 print(f"Erro ao inserir vaga: {e}")
         print("Processo concluído com sucesso!")
     else:
-        print("Nenhuma vaga retornada nesta execução.")
+        print("ALERTA: A API retornou 0 vagas com esse filtro. Vamos ajustar o termo de busca.")
