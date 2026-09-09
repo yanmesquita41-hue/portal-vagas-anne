@@ -112,18 +112,18 @@ def buscar_adzuna():
     return vagas_coletadas
 
 def buscar_rapidapi():
-    print("Iniciando varredura na RapidAPI (JSearch)...")
+    print("Iniciando varredura na RapidAPI (JSearch /search)...")
     vagas_coletadas = []
+    
+    # Queries simplificadas para garantir alta assertividade no agregador do Google for Jobs
     queries = [
-        "Analista de PCP Brasil",
-        "Supply Chain Senior Brasil",
+        "PCP Brasil",
+        "Supply Chain Brasil",
         "Planejador de Producao Brasil",
-        "Analista de S&OP Brasil",
-        "Coordenador de PCP Brasil",
-        "Production Planner Brasil"
+        "S&OP Brasil",
+        "Logistica Senior Brasil"
     ]
     
-    # URL CORRIGIDA COM O ENDPOINT DE PESQUISA /search
     url = "https://jsearch.p.rapidapi.com/search"
     headers = {
         "X-RapidAPI-Key": RAPIDAPI_KEY,
@@ -142,8 +142,9 @@ def buscar_rapidapi():
             response = requests.get(url, headers=headers, params=querystring, timeout=10)
             if response.status_code == 200:
                 data_json = response.json()
-                print(f"DEBUG RapidAPI [{query}]: Status OK, retornou {len(data_json.get('data', []))} itens brutos.")
-                for item in data_json.get("data", []):
+                resultados = data_json.get("data", [])
+                print(f"JSearch [{query}]: {len(resultados)} vagas brutas retornadas.")
+                for item in resultados:
                     titulo = item.get("job_title", "")
                     empresa = item.get("employer_name", "Indústria / Empresa")
                     link = item.get("job_apply_link", "") or item.get("job_google_link", "")
@@ -157,9 +158,9 @@ def buscar_rapidapi():
                     if vaga and vaga not in vagas_coletadas:
                         vagas_coletadas.append(vaga)
             else:
-                print(f"Erro HTTP RapidAPI [{query}]: {response.status_code} - {response.text}")
+                print(f"Erro HTTP JSearch [{query}]: {response.status_code}")
         except Exception as e:
-            print(f"Erro RapidAPI ({query}): {e}")
+            print(f"Erro JSearch ({query}): {e}")
             
     print(f"Vagas válidas capturadas via RapidAPI: {len(vagas_coletadas)}")
     return vagas_coletadas
