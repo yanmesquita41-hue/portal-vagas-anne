@@ -67,7 +67,7 @@ def buscar_vagas_apify():
                             "empresa": empresa,
                             "cidade": "São Paulo - SP",
                             "match_score": score,
-                            "tags": tags,
+                            "tags": ", ".join(tags) if isinstance(tags, list) else tags,
                             "link_da_vaga": link,
                             "descricao": descricao[:300]
                         })
@@ -87,11 +87,7 @@ if __name__ == "__main__":
         print("Salvando novas vagas reais no Supabase...")
         for vaga in vagas:
             try:
-                vaga_payload = vaga.copy()
-                if isinstance(vaga_payload.get("tags"), list):
-                    vaga_payload["tags"] = ", ".join(vaga_payload["tags"])
-                
-                supabase.table("vagas").insert(vaga_payload).execute()
+                supabase.table("vagas").insert(vaga).execute()
                 print(f"Inserida com sucesso: {vaga['titulo']} ({vaga['empresa']})")
             except Exception as e:
                 print(f"ERRO DO SUPABASE AO INSERIR: {e}")
