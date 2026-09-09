@@ -1,10 +1,13 @@
 import os
 import requests
-from duckduckgo_search import DDGS
 from supabase import create_client, Client
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://lqgkytfaaisubgemgved.supabase.co")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "sb_publishable_XU_qqEJD90xA02LKWC1Xhg_Aj0xQ...")
+
+# Pega as chaves seguras cadastradas nas Secrets do GitHub
+ADZUNA_APP_ID = os.environ.get("ADZUNA_APP_ID", "")
+ADZUNA_APP_KEY = os.environ.get("ADZUNA_APP_KEY", "")
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
@@ -26,68 +29,67 @@ def limpar_tabela():
     except Exception as e:
         print(f"Erro ao limpar tabela: {e}")
 
-def buscar_vagas_reais():
+def buscar_vagas_adzuna():
     vagas_coletadas = []
-    queries = [
-        "vaga pcp sao paulo site:gupy.io",
-        "vaga supply chain sao paulo site:linkedin.com/jobs",
-        "planejador de producao sao paulo"
-    ]
+    # Requisição oficial na API do Adzuna filtrando por PCP / Supply Chain em São Paulo
+    url = f"https://api.adzuna.com/v1/api/jobs/br/search/1?app_id={ADZUNA_APP_ID}&app_key={ADZUNA_APP_KEY}&what=PCP%20Supply%20Chain&where=São%20Paulo&content-type=json"
     
-    print("Buscando vagas reais na web via DuckDuckGo...")
-    
+    print("Consultando vagas reais na API oficial do Adzuna...")
     try:
-        with DDGS() as ddgs:
-            for q in queries:
-                print(f"Pesquisando por: {q}")
-                results = [r for r in ddgs.text(q, max_results=6)]
+        response = requests.get(url, timeout=15)
+        print(f"Status HTTP Adzuna: {response.status_code}")
+        
+        if response.status_code == 200:
+            dados = response.json()
+            resultados = dados.get("results", [])
+            print(f"-> {len(resultados)} vagas reais encontradas.")
+            
+            for item in resultados:
+                titulo = item.get("title", "").replace("<strong>", "").replace("</strong>", "")
                 
-                for r in results:
-                    titulo = r.get("title", "Oportunidade Industrial")
-                    link = r.get("href", "")
-                    snippet = r.get("body", "Vaga encontrada nos portais de recrutamento.")
-                    
-                    empresa = "Indústria / Empresa SP"
-                    if "gupy.io" in link:
-                        partes = link.split("/")
-                        if len(partes) > 2:
-                            empresa = partes[2].split(".")[0].capitalize()
-                    elif "-" in titulo:
-                        partes_titulo = titulo.split("-")
-                        if len(partes_titulo) > 1:
-                            empresa = partes_titulo[-1].strip()
-                    
-                    score, tags = calcular_match_score(snippet, titulo)
-                    
-                    if link and "google.com" not in link:
-                        vagas_coletadas.append({
-                            "titulo": titulo,
-                            "empresa": empresa,
-                            "cidade": "São Paulo - SP",
-                            "match_score": score,
-                            "tags": tags,
-                            "link_da_vaga": link,
-                            "descricao": snippet
-                        })
+                empresa_obj = item.get("company", {})
+                empresa = empresa_obj.get("display_name", "Empresa Parceira")
+                
+                local_obj = item.get("location", {})
+                cidade = ", ".join(local_obj.get("area", ["São Paulo", "SP"]))
+                
+                link = item.get("redirect_url", "")
+                descricao = item.get("description", "")
+                if len(descricao) > 300:
+                    descricao = descricao[:300] + "..."
+                
+                score, tags = calcular_match_score(descricao, titulo)
+                
+                if link:
+                    vagas_coletadas.append({
+                        "titulo": titulo,
+                        "empresa": empresa,
+                        "cidade": cidade,
+                        "match_score": score,
+                        "tags": tags,
+                        "link_da_vaga": link,
+                        "descricao": descricao
+                    })
+        else:
+            print(f"Erro na API Adzuna: Resposta {response.text}")
     except Exception as e:
-        print(f"Erro na busca web: {e}")
+        print(f"Erro de conexão com o Adzuna: {e}")
 
-    vagas_unicas = {v['link_da_vaga']: v for v in vagas_coletadas}.values()
-    return list(vagas_unicas)
+    return vagas_coletadas
 
 if __name__ == "__main__":
-    vagas = buscar_vagas_reais()
-    print(f"Total de vagas reais encontradas na web: {len(vagas)}")
+    vagas = buscar_vagas_adzuna()
+    print(f"Total de vagas processadas: {len(vagas)}")
     
     if vagas:
         limpar_tabela()
-        print("Salvando no Supabase...")
+        print("Salvando novas vagas reais no Supabase...")
         for vaga in vagas:
             try:
                 supabase.table("vagas").insert(vaga).execute()
-                print(f"Inserida com sucesso: {vaga['titulo']} ({vaga['empresa']})")
+                print(f"Inserida: {vaga['titulo']} ({vaga['empresa']})")
             except Exception as e:
-                print(f"Erro ao inserir no Supabase: {e}")
+                print(f"Erro ao inserir vaga: {e}")
         print("Processo concluído com sucesso!")
     else:
         print("Nenhuma vaga retornada nesta execução.")
