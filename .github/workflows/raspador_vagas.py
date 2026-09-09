@@ -1,6 +1,7 @@
 import os
 import requests
 from urllib.parse import quote_plus
+from datetime import datetime, timedelta
 from supabase import create_client, Client
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://lqgkytfaaisubgemgved.supabase.co")
@@ -40,6 +41,24 @@ def calcular_match_score(descricao_vaga, titulo_vaga):
             tags.append(kw.upper())
     return min(score, 100), tags if tags else ["Supply Chain", "PCP"]
 
+def e_vaga_recente(texto_data):
+    """
+    Filtra estritamente vagas publicadas nos últimos 7 dias.
+    """
+    if not texto_data:
+        return True
+    
+    texto = texto_data.lower()
+    if any(palavra in texto for palavra in ["hora", "minuto", "ontem", "1 dia", "2 dia", "3 dia", "4 dia", "5 dia", "6 dia", "7 dia"]):
+        return True
+    
+    if "semana" in texto or "mês" in texto or "meses" in texto:
+        if "1 semana" in texto:
+            return True
+        return False
+        
+    return True
+
 def buscar_vagas_sites_empresas():
     vagas_coletadas = []
     
@@ -47,14 +66,19 @@ def buscar_vagas_sites_empresas():
         print("Erro: SERPAPI_KEY não configurada.")
         return vagas_coletadas
 
-    # 1. Varredura por termos regionais e de cargos no Google Jobs
-    print("Iniciando varredura por termos e regiões...")
+    # 1. Varredura por termos e regiões no Google Jobs (Restrito aos últimos 7 dias via parâmetro tbs=qdr:w)
+    print("Iniciando varredura por termos e regiões (últimos 7 dias)...")
     for termo in TERMOS_BUSCA:
-        url = f"https://serpapi.com/search.json?engine=google_jobs&q={termo}&hl=pt-BR&api_key={SERPAPI_KEY}"
+        url = f"https://serpapi.com/search.json?engine=google_jobs&q={termo}&tbs=qdr:w&hl=pt-BR&api_key={SERPAPI_KEY}"
         try:
             res = requests.get(url)
             if res.status_code == 200:
                 for item in res.json().get("jobs_results", []):
+                    data_publicacao = item.get("detected_extensions", {}).get("posted_at", "")
+                    
+                    if not e_vaga_recente(data_publicacao):
+                        continue
+                        
                     titulo = item.get("title", "")
                     empresa = item.get("company_name", "Indústria / Empresa")
                     local = item.get("location", "São Paulo - SP")
@@ -90,15 +114,20 @@ def buscar_vagas_sites_empresas():
         except Exception as e:
             print(f"Erro ao buscar termo '{termo}': {e}")
 
-    # 2. Varredura direcionada dentro dos portais oficiais das empresas alvo
-    print("Iniciando varredura direta nos portais corporativos das empresas...")
+    # 2. Varredura direta nos portais corporativos das empresas alvo (Limitado à última semana)
+    print("Iniciando varredura direta nos portais corporativos das empresas (últimos 7 dias)...")
     for alvo in SITES_EMPRESAS:
         query_site = f"site:{alvo['site']} (PCP OR \"Supply Chain\" OR Logística OR Produção)"
-        url_site = f"https://serpapi.com/search.json?engine=google_jobs&q={quote_plus(query_site)}&hl=pt-BR&api_key={SERPAPI_KEY}"
+        url_site = f"https://serpapi.com/search.json?engine=google_jobs&q={quote_plus(query_site)}&tbs=qdr:w&hl=pt-BR&api_key={SERPAPI_KEY}"
         try:
             res = requests.get(url_site)
             if res.status_code == 200:
                 for item in res.json().get("jobs_results", []):
+                    data_publicacao = item.get("detected_extensions", {}).get("posted_at", "")
+                    
+                    if not e_vaga_recente(data_publicacao):
+                        continue
+                        
                     titulo = item.get("title", "")
                     empresa = alvo['empresa']
                     local = item.get("location", "São Paulo - SP")
@@ -134,10 +163,10 @@ def buscar_vagas_sites_empresas():
 
 def salvar_no_supabase(vagas):
     if not vagas:
-        print("Nenhuma vaga encontrada para salvar.")
+        print("Nenhuma vaga recente encontrada para salvar.")
         return
 
-    print(f"Salvando {len(vagas)} vagas no Supabase...")
+    print(f"Salvando {len(vagas)} vagas recentes no Supabase...")
     for vaga in vagas:
         try:
             supabase.table("vagas").insert(vaga).execute()
@@ -146,6 +175,6 @@ def salvar_no_supabase(vagas):
 
 if __name__ == "__main__":
     vagas = buscar_vagas_sites_empresas()
-    print(f"Total coletado na varredura: {len(vagas)}")
+    print(f"Total coletado na varredura recente (7 dias): {len(vagas)}")
     salvar_no_supabase(vagas)
     print("Processo de varredura e salvamento finalizado com sucesso!")
