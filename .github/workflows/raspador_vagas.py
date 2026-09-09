@@ -3,7 +3,7 @@ import requests
 from supabase import create_client, Client
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://lqgkytfaaisubgemgved.supabase.co")
-SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "sb_publishable_XU_qqEJD90xA02LKWC1Xhg_Aj0xQi0n")
+SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "sb_publishable_XU_qqEJD90xA02LKWC1Xhg_Aj0xQ...")
 SERPAPI_KEY = "ea4f413bd1cbe50410cb2d7ccca035e2a74781e45f77b5c3e649e9152d12aecb"
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
@@ -27,7 +27,7 @@ def calcular_match_score(descricao_vaga, titulo_vaga):
 def buscar_vagas_eficiente():
     vagas_coletadas = []
     
-    # 1. Busca via Google Jobs (SerpApi) com termos amplos
+    # 1. Busca via Google Jobs (SerpApi) com validação de link direto
     if SERPAPI_KEY:
         print("Buscando no Google Jobs...")
         for termo in TERMOS_BUSCA:
@@ -39,8 +39,22 @@ def buscar_vagas_eficiente():
                         titulo = item.get("title", "")
                         empresa = item.get("company_name", "Indústria / Empresa")
                         local = item.get("location", "São Paulo - SP")
+                        
                         apply_opts = item.get("apply_options", [])
-                        link = apply_opts[0].get("link") if apply_opts else "https://www.google.com/search?q=jobs"
+                        link = None
+                        
+                        # Procura um link que seja direto da plataforma (evita links genéricos de redirecionamento)
+                        for opt in apply_opts:
+                            candidate_link = opt.get("link", "")
+                            if candidate_link and "google.com" not in candidate_link:
+                                link = candidate_link
+                                break
+                        
+                        if not link and apply_opts:
+                            link = apply_opts[0].get("link")
+                            
+                        if not link or "google.com/search" in link:
+                            continue # Ignora vagas sem link de destino direto válido
                         
                         score, tags = calcular_match_score(item.get("description", ""), titulo)
                         vagas_coletadas.append({
@@ -68,7 +82,11 @@ def buscar_vagas_eficiente():
                     job_id = item.get("id")
                     subdomain = item.get("subDomain")
                     
-                    link = f"https://{subdomain}.gupy.io/jobs/{job_id}" if subdomain and job_id else "https://gupy.io"
+                    if subdomain and job_id:
+                        link = f"https://{subdomain}.gupy.io/jobs/{job_id}"
+                    else:
+                        continue
+                        
                     score, tags = calcular_match_score(item.get("description", ""), titulo)
                     
                     vagas_coletadas.append({
