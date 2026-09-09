@@ -9,16 +9,12 @@ SERPAPI_KEY = "ea4f413bd1cbe50410cb2d7ccca035e2a74781e45f77b5c3e649e9152d12aecb"
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# Termos focados diretamente nos cargos de alta relevância industrial
+# Termos focados nos cargos principais da indústria
 TERMOS_BUSCA = [
-    "PCP", "Supply Chain", "Planejador de Produção", 
-    "Demand Planner", "Logística Industrial", "S&OP", "Analista de PCP"
-]
-
-# Plataformas e domínios oficiais permitidos
-DOMINIOS_VALIDOS = [
-    "bosch.com", "toyota.com", "3m.com", "embraer.com", "nestle.com", 
-    "gm.com", "deere.com", "zf.com", "jnj.com", "coca-colafemsa.com", "gupy.io"
+    "PCP Campinas", 
+    "Supply Chain São Paulo", 
+    "Planejador de Produção Jundiaí", 
+    "Logística Industrial Sorocaba"
 ]
 
 def calcular_match_score(descricao_vaga, titulo_vaga):
@@ -31,56 +27,48 @@ def calcular_match_score(descricao_vaga, titulo_vaga):
             tags.append(kw.upper())
     return min(score, 100), tags if tags else ["Supply Chain", "PCP"]
 
-def limpar_vagas_antigas():
-    print("Limpando vagas antigas do Supabase...")
+def limpar_tabela():
+    print("Limpando registros antigos do Supabase...")
     try:
         supabase.table("vagas").delete().neq("id", 0).execute()
         print("Tabela limpa com sucesso.")
     except Exception as e:
         print(f"Erro ao limpar tabela: {e}")
 
-def buscar_vagas_inteligente():
+def buscar_vagas():
     vagas_coletadas = []
     
     if not SERPAPI_KEY:
         print("Erro: SERPAPI_KEY não configurada.")
         return vagas_coletadas
 
-    print("Iniciando varredura ampla no Google Jobs (últimos 7 dias)...")
+    print("Iniciando busca de vagas...")
     
     for termo in TERMOS_BUSCA:
-        # Busca focada no estado de São Paulo / região industrial sem travar o termo na URL
-        url = f"https://serpapi.com/search.json?engine=google_jobs&q={quote_plus(termo + ' São Paulo')}&tbs=qdr:w&hl=pt-BR&api_key={SERPAPI_KEY}"
+        # Busca direta sem restrições complexas para garantir o retorno de resultados pela API
+        url = f"https://serpapi.com/search.json?engine=google_jobs&q={quote_plus(termo)}&hl=pt-BR&api_key={SERPAPI_KEY}"
         
         try:
             res = requests.get(url, timeout=15)
             if res.status_code == 200:
-                for item in res.json().get("jobs_results", []):
+                resultados = res.json().get("jobs_results", [])
+                print(f"Termo '{termo}': {len(resultados)} vagas encontradas.")
+                
+                for item in resultados:
                     titulo = item.get("title", "")
                     empresa = item.get("company_name", "Indústria / Empresa")
                     local = item.get("location", "São Paulo - SP")
-                    descricao = item.get("description", "Vaga oficial extraída do portal de recrutamento.")
+                    descricao = item.get("description", "Descrição detalhada da vaga disponível no portal oficial.")
                     
                     apply_opts = item.get("apply_options", [])
                     link = None
                     
-                    # Procura um link que pertença a um domínio ou plataforma oficial válida
-                    for opt in apply_opts:
-                        candidate_link = opt.get("link", "")
-                        if candidate_link and any(dom in candidate_link.lower() for dom in DOMINIOS_VALIDOS):
-                            link = candidate_link
-                            break
-                    
-                    # Se não achar nos domínios específicos, pega o primeiro link externo seguro
-                    if not link and apply_opts:
-                        for opt in apply_opts:
-                            candidate_link = opt.get("link", "")
-                            if candidate_link and "google.com" not in candidate_link:
-                                link = candidate_link
-                                break
-                                
+                    # Pega o primeiro link de candidatura disponível
+                    if apply_opts:
+                        link = apply_opts[0].get("link")
+                        
                     if not link:
-                        continue
+                        link = "https://www.google.com/search?q=" + quote_plus(f"{titulo} {empresa}")
                         
                     score, tags = calcular_match_score(descricao, titulo)
                     
@@ -96,26 +84,26 @@ def buscar_vagas_inteligente():
         except Exception as e:
             print(f"Erro ao buscar termo '{termo}': {e}")
 
-    # Remove duplicatas baseadas no título e empresa coletados
+    # Remove duplicatas
     vagas_unicas = {v['titulo'] + v['empresa']: v for v in vagas_coletadas}.values()
     return list(vagas_unicas)
 
 def salvar_no_supabase(vagas):
     if not vagas:
-        print("Nenhuma vaga válida encontrada nesta rodada.")
+        print("Nenhuma vaga encontrada para salvar.")
         return
 
-    limpar_vagas_antigas()
+    limpar_tabela()
 
-    print(f"Salvando {len(vagas)} vagas limpas e ativas no Supabase...")
+    print(f"Salvando {len(vagas)} vagas no Supabase...")
     for vaga in vagas:
         try:
             supabase.table("vagas").insert(vaga).execute()
         except Exception as e:
-            pass
+            print(f"Erro ao inserir vaga: {e}")
 
 if __name__ == "__main__":
-    vagas = buscar_vagas_inteligente()
-    print(f"Total coletado: {len(vagas)}")
+    vagas = buscar_vagas()
+    print(f"Total processado: {len(vagas)}")
     salvar_no_supabase(vagas)
-    print("Processo concluído com sucesso!")
+    print("Processo finalizado!")
