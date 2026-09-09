@@ -33,6 +33,18 @@ def calcular_match_score(descricao_vaga, titulo_vaga):
             tags.append(kw.upper())
     return min(score, 100), tags if tags else ["Supply Chain", "PCP"]
 
+def limpar_vagas_antigas():
+    """
+    Limpa a tabela do Supabase antes de inserir as novas vagas para evitar repetição e conteúdo obsoleto.
+    """
+    print("Limpando vagas antigas do Supabase...")
+    try:
+        # Deleta todos os registros atuais da tabela 'vagas'
+        supabase.table("vagas").delete().neq("id", 0).execute()
+        print("Tabela limpa com sucesso.")
+    except Exception as e:
+        print(f"Erro ao limpar tabela: {e}")
+
 def buscar_vagas_rapido():
     vagas_coletadas = []
     
@@ -43,7 +55,6 @@ def buscar_vagas_rapido():
     print("Iniciando varredura otimizada nos portais oficiais (últimos 7 dias)...")
     
     for portal in PORTAIS_OFICIAIS:
-        # Busca agrupada por empresa para rodar instantaneamente (1 chamada por portal)
         query_estrita = f"site:{portal['dominio']} (PCP OR \"Supply Chain\" OR Logística OR Produção)"
         url = f"https://serpapi.com/search.json?engine=google_jobs&q={quote_plus(query_estrita)}&tbs=qdr:w&hl=pt-BR&api_key={SERPAPI_KEY}"
         
@@ -94,7 +105,10 @@ def salvar_no_supabase(vagas):
         print("Nenhuma vaga real encontrada para salvar.")
         return
 
-    print(f"Salvando {len(vagas)} vagas no Supabase...")
+    # Limpa os registros antigos antes de gravar a nova fornada
+    limpar_vagas_antigas()
+
+    print(f"Salvando {len(vagas)} vagas novas no Supabase...")
     for vaga in vagas:
         try:
             supabase.table("vagas").insert(vaga).execute()
