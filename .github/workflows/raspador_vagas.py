@@ -18,14 +18,17 @@ def limpar_tabela():
         print(f"Erro ao limpar tabela: {e}")
 
 def buscar_vagas_completas():
-    print("Iniciando varredura com filtros estritos de senioridade e cargos...")
+    print("Iniciando varredura cirúrgica alinhada ao perfil sênior de PCP e Supply Chain...")
     vagas_coletadas = []
     
+    # Termos altamente direcionados ao perfil da Anne
     termos_chave = [
-        "PCP", "Supply Chain", "Planejador de Produção", 
-        "Analista de Materiais", "S&OP", "MRP", "Logística Sênior", "Gerente de Supply"
+        "Analista de PCP Sênior", "Planejador de Produção", 
+        "Supply Chain Manager", "Analista de S&OP", 
+        "Coordenador de PCP", "Planejador de Materiais MRP"
     ]
     
+    # Polos industriais estratégicos do Sudeste e Sul
     cidades_alvo = [
         "Campinas", "Jundiaí", "Sorocaba", "Indaiatuba", 
         "São José dos Campos", "Piracicaba", "Joinville", "Curitiba"
@@ -39,7 +42,7 @@ def buscar_vagas_completas():
             params = {
                 "app_id": APP_ID,
                 "app_key": APP_KEY,
-                "results_per_page": 15,
+                "results_per_page": 10,
                 "what": termo,
                 "where": local,
                 "content-type": "application/json"
@@ -60,21 +63,22 @@ def buscar_vagas_completas():
                         
                         t_lower = titulo.lower()
                         
-                        # --- TRAVA 1: Eliminar termos operacionais, juniores, aprendizes e estágio ---
+                        # --- TRAVA 1: Eliminar rigorosamente qualquer cargo operacional ou júnior ---
                         termos_proibidos = [
                             "estágio", "estagiario", "estagiária", "trainee", "assistente", 
                             "auxiliar", "júnior", "jr", "jovem aprendiz", "aprendiz", 
-                            "almoxarifado", "almoxarife", "operador", "recepção", "portaria"
+                            "almoxarifado", "almoxarife", "operador", "recepção", "portaria",
+                            "técnico", "tecnico"
                         ]
                         if any(termo_proibido in t_lower for termo_proibido in termos_proibidos):
                             continue
                             
-                        # --- TRAVA 2: Garantir que o foco seja PCP / Supply Chain / Logística de nível adequado ---
+                        # --- TRAVA 2: Garantir alinhamento estrito com PCP, Supply Chain ou Logística Tática ---
                         termos_obrigatorios = ["pcp", "supply", "logíst", "planejador", "s&op", "mrp", "materiais", "produção"]
                         if not any(obrigatório in t_lower for obrigatório in termos_obrigatorios):
                             continue
 
-                        # --- TRAVA 3: Validar se tem no máximo 30 dias ---
+                        # --- TRAVA 3: Filtrar apenas vagas dos últimos 30 dias ---
                         is_recente = True
                         if data_criacao_str:
                             try:
@@ -87,15 +91,15 @@ def buscar_vagas_completas():
                         if not is_recente:
                             continue
                             
-                        # Cálculo de Match Score baseado na senioridade e termos fortes
+                        # Cálculo de Match Score focado em senioridade e ferramentas (SAP, MRP, S&OP)
                         score = 85
                         if "sr" in t_lower or "sênior" in t_lower or "gerente" in t_lower or "coordenador" in t_lower:
-                            score = 95
+                            score = 96
                         elif "pleno" in t_lower or "pl" in t_lower:
                             score = 90
                             
                         if "sap" in descricao or "mrp" in descricao or "s&op" in descricao:
-                            score = min(score + 5, 100)
+                            score = min(score + 4, 100)
 
                         cidade_formatada = f"{local} - SP"
                         if local == "Joinville":
@@ -116,7 +120,7 @@ def buscar_vagas_completas():
             except Exception as e:
                 print(f"Erro na busca: {e}")
                 
-    print(f"Total de vagas altamente qualificadas filtradas: {len(vagas_coletadas)}")
+    print(f"Total de vagas sênior/pleno qualificadas: {len(vagas_coletadas)}")
     return vagas_coletadas
 
 if __name__ == "__main__":
@@ -124,7 +128,7 @@ if __name__ == "__main__":
     
     if vagas:
         limpar_tabela()
-        print("Enviando vagas limpas e filtradas para o Supabase...")
+        print("Enviando vagas limpas e de alto nível para o Supabase...")
         for vaga in vagas:
             try:
                 supabase.table("vagas").insert(vaga).execute()
