@@ -23,24 +23,30 @@ def limpar_tabela():
     except Exception as e:
         print(f"Erro ao limpar tabela: {e}")
 
-def validar_e_filtrar(titulo, empresa, cidade, descricao, link, data_criacao_str=None):
+def validar_e_filtrar(titulo, empresa, cidade, descricao, link, pais="BR", data_criacao_str=None):
+    # 1. TRAVA ABSOLUTA DE PAÍS: Descarta qualquer coisa que não seja do Brasil
+    if pais and pais.upper() != "BR":
+        return None
+
     t_lower = titulo.lower()
+    d_lower = descricao.lower()
     
-    # 1. Trava de exclusão rigorosa (cargos operacionais, júnior e estágio)
+    # 2. TRAVA DE EXCLUSÃO RIGOROSA (Cargos operacionais, júnior, estágio e TI/Software)
     termos_proibidos = [
         "estágio", "estagiario", "estagiária", "trainee", "assistente", 
         "auxiliar", "júnior", "jr", "jovem aprendiz", "aprendiz", 
-        "almoxarifado", "almoxarife", "operador", "recepção", "técnico", "tecnico"
+        "almoxarifado", "almoxarife", "operador", "recepção", "técnico", "tecnico",
+        "developer", "front-end", "back-end", "software", "fullstack", "full-stack", "react", "python"
     ]
-    if any(termo in t_lower for termo in termos_proibidos):
+    if any(termo in t_lower for termo in termos_proibidos) or any(termo in d_lower for termo in termos_proibidos):
         return None
         
-    # 2. Trava de alinhamento obrigatório com PCP, Supply Chain ou Logística Tática
+    # 3. TRAVA DE ALINHAMENTO OBRIGATÓRIO COM PCP, SUPPLY CHAIN OU LOGÍSTICA TÁTICA
     termos_obrigatorios = ["pcp", "supply", "logíst", "planejador", "s&op", "mrp", "materiais", "produção", "planner"]
     if not any(termo in t_lower for termo in termos_obrigatorios):
         return None
 
-    # 3. Validação de temporalidade (máximo 30 dias, se houver data)
+    # 4. VALIDAÇÃO DE TEMPORALIDADE (Máximo 30 dias)
     if data_criacao_str:
         try:
             limite_data = datetime.now() - timedelta(days=30)
@@ -50,14 +56,14 @@ def validar_e_filtrar(titulo, empresa, cidade, descricao, link, data_criacao_str
         except:
             pass
 
-    # 4. Cálculo dinâmico de Match Score
+    # 5. CÁLCULO DINÂMICO DE MATCH SCORE
     score = 88
     if "sr" in t_lower or "sênior" in t_lower or "gerente" in t_lower or "coordenador" in t_lower:
         score = 97
     elif "pleno" in t_lower or "pl" in t_lower:
         score = 92
         
-    if "sap" in descricao or "mrp" in descricao or "s&op" in descricao:
+    if "sap" in d_lower or "mrp" in d_lower or "s&op" in d_lower:
         score = min(score + 3, 100)
 
     if link and titulo:
@@ -109,7 +115,7 @@ def buscar_adzuna():
                         if local == "Joinville": cidade_fmt = "Joinville - SC"
                         elif local == "Curitiba": cidade_fmt = "Curitiba - PR"
                         
-                        vaga = validar_e_filtrar(titulo, empresa, cidade_fmt, descricao, link, data_criacao)
+                        vaga = validar_e_filtrar(titulo, empresa, cidade_fmt, descricao, link, "BR", data_criacao)
                         if vaga and vaga not in vagas_coletadas:
                             vagas_coletadas.append(vaga)
             except Exception as e:
@@ -122,15 +128,14 @@ def buscar_rapidapi():
     print("Iniciando varredura na RapidAPI (JSearch)...")
     vagas_coletadas = []
     
-    # Consultas unificadas no formato ideal da JSearch (cargo + local)
     queries = [
-        "Analista de PCP em Campinas, SP",
-        "Supply Chain Senior em Sao Paulo, SP",
-        "Planejador de Producao em Jundiai, SP",
-        "Analista de S&OP em Sorocaba, SP",
-        "Coordenador de PCP em Joinville, SC",
-        "Supply Chain em Curitiba, PR",
-        "Production Planner em Sao Jose dos Campos, SP"
+        "Analista de PCP Campinas SP",
+        "Supply Chain Senior Sao Paulo SP",
+        "Planejador de Producao Jundiai SP",
+        "Analista de S&OP Sorocaba SP",
+        "Coordenador de PCP Joinville SC",
+        "Supply Chain Curitiba PR",
+        "Production Planner Sao Jose dos Campos SP"
     ]
     
     url = "https://jsearch.p.rapidapi.com/search"
@@ -144,6 +149,7 @@ def buscar_rapidapi():
             "query": query,
             "page": "1",
             "num_pages": "1",
+            "country": "br",
             "date_posted": "month"
         }
         try:
@@ -156,10 +162,12 @@ def buscar_rapidapi():
                     link = item.get("job_apply_link", "") or item.get("job_google_link", "")
                     cidade = item.get("job_city", "São Paulo")
                     estado = item.get("job_state", "SP")
+                    pais = item.get("job_country", "BR")
                     cidade_fmt = f"{cidade} - {estado}"
                     descricao = item.get("job_description", "").lower()
                     
-                    vaga = validar_e_filtrar(titulo, empresa, cidade_fmt, descricao, link)
+                    # Passa pelo filtro blindado (descarta EUA e termos de TI)
+                    vaga = validar_e_filtrar(titulo, empresa, cidade_fmt, descricao, link, pais)
                     if vaga and vaga not in vagas_coletadas:
                         vagas_coletadas.append(vaga)
         except Exception as e:
@@ -169,12 +177,11 @@ def buscar_rapidapi():
     return vagas_coletadas
 
 if __name__ == "__main__":
-    print("Executando agregador multi-API (Adzuna + RapidAPI)...")
+    print("Executando agregador multi-API blindado...")
     
     vagas_adzuna = buscar_adzuna()
     vagas_rapid = buscar_rapidapi()
     
-    # Mescla as listas e remove duplicadas com base no link da vaga
     todas_vagas = vagas_adzuna + vagas_rapid
     vagas_unicas = []
     links_vistos = set()
@@ -184,17 +191,17 @@ if __name__ == "__main__":
             links_vistos.add(v["link_da_vaga"])
             vagas_unicas.append(v)
             
-    print(f"Total de vagas únicas unificadas: {len(vagas_unicas)}")
+    print(f"Total de vagas únicas validadas: {len(vagas_unicas)}")
     
     if vagas_unicas:
         limpar_tabela()
-        print("Enviando vagas unificadas para o Supabase...")
+        print("Enviando vagas limpas para o Supabase...")
         for vaga in vagas_unicas:
             try:
                 supabase.table("vagas").insert(vaga).execute()
                 print(f"[SUCESSO] {vaga['empresa']} | {vaga['titulo']} ({vaga['cidade']})")
             except Exception as e:
                 print(f"[ERRO ao inserir]: {e}")
-        print("Sincronização multi-API concluída com sucesso!")
+        print("Sincronização concluída com sucesso!")
     else:
         print("Nenhuma vaga atendeu aos critérios rigorosos nesta execução.")
