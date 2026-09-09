@@ -3,7 +3,7 @@ name: Atualizar Vagas Anne
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 */6 * * *'
+    - cron: '0 */6 * * *' # Roda a cada 6 horas
 
 jobs:
   run-scraper:
@@ -20,11 +20,13 @@ jobs:
       - name: Instalar dependências
         run: |
           pip install --upgrade pip
-          pip install duckduckgo_search requests supabase beautifulsoup4
+          pip install requests supabase beautifulsoup4
 
       - name: Executar raspador
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          ADZUNA_APP_ID: ${{ secrets.ADZUNA_APP_ID }}
+          ADZUNA_APP_KEY: ${{ secrets.ADZUNA_APP_KEY }}
         run: |
           python raspador_vagas.py
