@@ -43,6 +43,9 @@ def calcular_match_score(descricao_vaga, titulo_vaga):
     score_final = min(score, 100)
     return score_final, tags_encontradas
 
+# ---------------------------------------------------------------------------
+# MÓDULO 1: COLETA GUPY (APIs públicas de grandes redes e multinacionais)
+# ---------------------------------------------------------------------------
 def buscar_vagas_gupy():
     vagas_encontradas = []
     
@@ -59,7 +62,6 @@ def buscar_vagas_gupy():
                         cidade_vaga = item.get("city", cidade)
                         descricao = item.get("description", "")
                         
-                        # Garante o link direto e oficial da vaga na Gupy
                         job_id = item.get("id")
                         subdomain = item.get("subDomain")
                         
@@ -83,6 +85,22 @@ def buscar_vagas_gupy():
                 
     return vagas_encontradas
 
+# ---------------------------------------------------------------------------
+# MÓDULO 2: OUTROS PORTAIS (LinkedIn, Indeed, Catho, Glassdoor)
+# Nota técnica: Portais como LinkedIn e Catho possuem bloqueios severos (Cloudflare/Captchas) 
+# que impedem requisições diretas por script simples na nuvem. Para acessá-los de forma 
+# 100% estável sem bloqueios, a estratégia ideal via código é o uso de APIs parceiras 
+# de agregação (como JSearch via RapidAPI) ou raspadores baseados em Selenium/Playwright.
+# ---------------------------------------------------------------------------
+def buscar_vagas_outros_portais():
+    vagas_outros = []
+    # Espaço reservado para integrar agregadores de vagas (ex: JSearch/LinkedIn API)
+    # ou APIs corporativas de RH assim que definir o provedor de agregação.
+    return vagas_outros
+
+# ---------------------------------------------------------------------------
+# ENVIO PARA O SUPABASE
+# ---------------------------------------------------------------------------
 def salvar_no_supabase(vagas):
     if not vagas:
         print("Nenhuma nova vaga encontrada nesta execução.")
@@ -96,8 +114,13 @@ def salvar_no_supabase(vagas):
             print(f"Nota: Vaga {vaga['titulo']} já cadastrada ou erro individual: {e}")
 
 if __name__ == "__main__":
-    print("Iniciando rastreamento diário de vagas...")
+    print("Iniciando rastreamento multicanal de vagas...")
+    
     vagas_gupy = buscar_vagas_gupy()
-    print(f"Total de vagas mapeadas: {len(vagas_gupy)}")
-    salvar_no_supabase(vagas_gupy)
+    vagas_outros = buscar_vagas_outros_portais()
+    
+    total_vagas = vagas_gupy + vagas_outros
+    print(f"Total geral de vagas mapeadas: {len(total_vagas)}")
+    
+    salvar_no_supabase(total_vagas)
     print("Processo concluído com sucesso!")
