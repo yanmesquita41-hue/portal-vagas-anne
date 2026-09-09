@@ -57,8 +57,16 @@ def buscar_vagas_gupy():
                         titulo = item.get("name")
                         empresa = item.get("careerPageName", "Multinacional")
                         cidade_vaga = item.get("city", cidade)
-                        link = item.get("jobUrl")
                         descricao = item.get("description", "")
+                        
+                        # Garante o link direto e oficial da vaga na Gupy
+                        job_id = item.get("id")
+                        subdomain = item.get("subDomain")
+                        
+                        if job_id and subdomain:
+                            link = f"https://{subdomain}.gupy.io/jobs/{job_id}"
+                        else:
+                            link = item.get("jobUrl", "https://gupy.io")
                         
                         score, tags = calcular_match_score(descricao, titulo)
                         
