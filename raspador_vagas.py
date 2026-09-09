@@ -9,18 +9,18 @@ SERPAPI_KEY = "ea4f413bd1cbe50410cb2d7ccca035e2a74781e45f77b5c3e649e9152d12aecb"
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# Portais corporativos oficiais das indústrias da região
-PORTAIS_OFICIAIS = [
-    {"empresa": "Bosch", "dominio": "bosch.com.br"},
-    {"empresa": "Toyota", "dominio": "toyota.com.br"},
-    {"empresa": "3M", "dominio": "3m.com.br"},
-    {"empresa": "Embraer", "dominio": "embraer.com"},
-    {"empresa": "Nestlé", "dominio": "nestle.com.br"},
-    {"empresa": "General Motors", "dominio": "gm.com"},
-    {"empresa": "John Deere", "dominio": "deere.com.br"},
-    {"empresa": "ZF Group", "dominio": "zf.com"},
-    {"empresa": "Johnson & Johnson", "dominio": "jnj.com"},
-    {"empresa": "Coca-Cola FEMSA", "dominio": "coca-colafemsa.com"}
+# Termos focados nas regiões industriais (Campinas, Jundiaí, Sorocaba, SJC, SP)
+TERMOS_BUSCA = [
+    "PCP Campinas", "Supply Chain Jundiaí", "Planejador de Produção Sorocaba", 
+    "Demand Planner São Paulo", "Logística Indaiatuba", "S&OP São José dos Campos",
+    "Analista de Logística Campinas", "Gerente de PCP São Paulo",
+    "PCP Bosch", "Supply Chain Embraer", "Logística Toyota"
+]
+
+# Domínios e plataformas confiáveis permitidas
+DOMINIOS_VALIDOS = [
+    "bosch.com", "toyota.com", "3m.com", "embraer.com", "nestle.com", 
+    "gm.com", "deere.com", "zf.com", "jnj.com", "coca-colafemsa.com", "gupy.io"
 ]
 
 def calcular_match_score(descricao_vaga, titulo_vaga):
@@ -34,61 +34,62 @@ def calcular_match_score(descricao_vaga, titulo_vaga):
     return min(score, 100), tags if tags else ["Supply Chain", "PCP"]
 
 def limpar_vagas_antigas():
-    """
-    Limpa a tabela do Supabase antes de inserir as novas vagas para evitar repetição e conteúdo obsoleto.
-    """
     print("Limpando vagas antigas do Supabase...")
     try:
-        # Deleta todos os registros atuais da tabela 'vagas'
         supabase.table("vagas").delete().neq("id", 0).execute()
         print("Tabela limpa com sucesso.")
     except Exception as e:
         print(f"Erro ao limpar tabela: {e}")
 
-def buscar_vagas_rapido():
+def buscar_vagas_inteligente():
     vagas_coletadas = []
     
     if not SERPAPI_KEY:
         print("Erro: SERPAPI_KEY não configurada.")
         return vagas_coletadas
 
-    print("Iniciando varredura otimizada nos portais oficiais (últimos 7 dias)...")
+    print("Iniciando varredura inteligente no Google Jobs (últimos 7 dias)...")
     
-    for portal in PORTAIS_OFICIAIS:
-        query_estrita = f"site:{portal['dominio']} (PCP OR \"Supply Chain\" OR Logística OR Produção)"
-        url = f"https://serpapi.com/search.json?engine=google_jobs&q={quote_plus(query_estrita)}&tbs=qdr:w&hl=pt-BR&api_key={SERPAPI_KEY}"
+    for termo in TERMOS_BUSCA:
+        # tbs=qdr:w garante apenas vagas da última semana
+        url = f"https://serpapi.com/search.json?engine=google_jobs&q={quote_plus(termo)}&tbs=qdr:w&hl=pt-BR&api_key={SERPAPI_KEY}"
         
         try:
             res = requests.get(url, timeout=15)
             if res.status_code == 200:
                 for item in res.json().get("jobs_results", []):
                     titulo = item.get("title", "")
-                    empresa = portal["empresa"]
+                    empresa = item.get("company_name", "Indústria / Empresa")
                     local = item.get("location", "São Paulo - SP")
-                    descricao = item.get("description", "Vaga oficial extraída do portal da empresa.")
+                    descricao = item.get("description", "Vaga oficial extraída do portal de recrutamento.")
                     
                     apply_opts = item.get("apply_options", [])
                     link = None
                     
+                    # Procura um link que pertença a um domínio ou plataforma oficial válida
                     for opt in apply_opts:
                         candidate_link = opt.get("link", "")
-                        if candidate_link and portal["dominio"] in candidate_link:
+                        if candidate_link and any(dom in candidate_link.lower() for dom in DOMINIOS_VALIDOS):
                             link = candidate_link
                             break
                     
+                    # Se não achar nos domínios específicos, pega o primeiro link externo seguro
                     if not link and apply_opts:
-                        candidate_link = apply_opts[0].get("link", "")
-                        if candidate_link and "google.com" not in candidate_link:
-                            link = candidate_link
-                            
+                        for opt in apply_opts:
+                            candidate_link = opt.get("link", "")
+                            if candidate_link and "google.com" not in candidate_link:
+                                link = candidate_link
+                                break
+                                
+                    # Se mesmo assim não houver link seguro, ignora a vaga
                     if not link:
-                        link = f"https://www.{portal['dominio']}"
+                        continue
                         
                     score, tags = calcular_match_score(descricao, titulo)
                     
                     vagas_coletadas.append({
                         "titulo": titulo,
-                        "empresa": empresa,
+                        "empresa": str(empresa).capitalize(),
                         "cidade": local,
                         "match_score": score,
                         "tags": tags,
@@ -96,19 +97,20 @@ def buscar_vagas_rapido():
                         "descricao": descricao
                     })
         except Exception as e:
-            print(f"Erro ao buscar na {portal['empresa']}: {e}")
+            print(f"Erro ao buscar termo '{termo}': {e}")
 
-    return vagas_coletadas
+    # Remove duplicatas baseadas no título e empresa coletados
+    vagas_unicas = {v['titulo'] + v['empresa']: v for v in vagas_coletadas}.values()
+    return list(vagas_unicas)
 
 def salvar_no_supabase(vagas):
     if not vagas:
-        print("Nenhuma vaga real encontrada para salvar.")
+        print("Nenhuma vaga válida encontrada nesta rodada.")
         return
 
-    # Limpa os registros antigos antes de gravar a nova fornada
     limpar_vagas_antigas()
 
-    print(f"Salvando {len(vagas)} vagas novas no Supabase...")
+    print(f"Salvando {len(vagas)} vagas limpas e ativas no Supabase...")
     for vaga in vagas:
         try:
             supabase.table("vagas").insert(vaga).execute()
@@ -116,7 +118,7 @@ def salvar_no_supabase(vagas):
             pass
 
 if __name__ == "__main__":
-    vagas = buscar_vagas_rapido()
+    vagas = buscar_vagas_inteligente()
     print(f"Total coletado: {len(vagas)}")
     salvar_no_supabase(vagas)
     print("Processo concluído com sucesso!")
