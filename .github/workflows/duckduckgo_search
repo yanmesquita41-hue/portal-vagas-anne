@@ -1,0 +1,4 @@
+- name: Instalar dependências
+  run: |
+    pip install --upgrade pip
+    pip install duckduckgo_search requests supabase beautifulsoup4
