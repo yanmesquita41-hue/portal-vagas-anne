@@ -28,7 +28,6 @@ def limpar_tabela():
 
 def buscar_vagas_apify():
     vagas_coletadas = []
-    # Usando o ator padrão de Google Search ou Web Scraper genérico do Apify
     actor_id = "apify~google-search-scraper"
     url_apify = f"https://api.apify.com/v2/acts/{actor_id}/run-sync-get-dataset-items?token={APIFY_TOKEN}"
     
@@ -48,7 +47,6 @@ def buscar_vagas_apify():
             print(f"-> Itens retornados pelo Apify: {len(dados)}")
             
             for item in dados:
-                # O Google Search Scraper retorna organic results
                 organic = item.get("organicResults", [])
                 for result in organic:
                     titulo = result.get("title", "Oportunidade Industrial")
@@ -89,10 +87,14 @@ if __name__ == "__main__":
         print("Salvando novas vagas reais no Supabase...")
         for vaga in vagas:
             try:
-                supabase.table("vagas").insert(vaga).execute()
-                print(f"Inserida: {vaga['titulo']} ({vaga['empresa']})")
+                vaga_payload = vaga.copy()
+                if isinstance(vaga_payload.get("tags"), list):
+                    vaga_payload["tags"] = ", ".join(vaga_payload["tags"])
+                
+                supabase.table("vagas").insert(vaga_payload).execute()
+                print(f"Inserida com sucesso: {vaga['titulo']} ({vaga['empresa']})")
             except Exception as e:
-                print(f"Erro ao inserir vaga: {e}")
+                print(f"ERRO DO SUPABASE AO INSERIR: {e}")
         print("Processo concluído com sucesso!")
     else:
         print("Nenhuma vaga retornada pelo Apify nesta execução.")
