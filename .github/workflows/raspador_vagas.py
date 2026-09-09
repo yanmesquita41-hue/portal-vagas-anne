@@ -3,18 +3,11 @@ import requests
 import json
 from supabase import create_client, Client
 
-# ---------------------------------------------------------------------------
-# CONFIGURAÇÕES DE CONEXÃO AO SUPABASE
-# ---------------------------------------------------------------------------
-# Substitua pelas suas chaves obtidas nas configurações do Supabase
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://lqgkytfaaisubgemgved.supabase.co")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "sb_publishable_XU_qqEJD90xA02LKWC1Xhg_Aj0xQi0n")
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# ---------------------------------------------------------------------------
-# CRITÉRIOS DE BUSCA E INTELIGÊNCIA DE MATCHING
-# ---------------------------------------------------------------------------
 CARGOS_ALVO = [
     "PCP", "Planejador de Produção", "Analista de PCP", 
     "Supply Chain", "S&OP", "S&OE", "Demand Planner", "Materiais"
@@ -38,10 +31,8 @@ PALAVRAS_CHAVE_PESO = {
 }
 
 def calcular_match_score(descricao_vaga, titulo_vaga):
-    """Calcula a pontuação de aderência da vaga com base no perfil."""
-    score = 40  # Pontuação base por coincidir cargo e cidade
+    score = 40
     texto_completo = f"{titulo_vaga} {descricao_vaga}".lower()
-    
     tags_encontradas = []
     
     for kw, peso in PALAVRAS_CHAVE_PESO.items():
@@ -49,13 +40,9 @@ def calcular_match_score(descricao_vaga, titulo_vaga):
             score += peso
             tags_encontradas.append(kw)
             
-    # Cap do score em 100%
     score_final = min(score, 100)
     return score_final, tags_encontradas
 
-# ---------------------------------------------------------------------------
-# MÓDULO DE COLETA: GUPY (Usado por Embraer, Lenovo, Flex, etc.)
-# ---------------------------------------------------------------------------
 def buscar_vagas_gupy():
     vagas_encontradas = []
     
@@ -88,9 +75,6 @@ def buscar_vagas_gupy():
                 
     return vagas_encontradas
 
-# ---------------------------------------------------------------------------
-# ENVIO PARA O SUPABASE
-# ---------------------------------------------------------------------------
 def salvar_no_supabase(vagas):
     if not vagas:
         print("Nenhuma nova vaga encontrada nesta execução.")
@@ -99,16 +83,13 @@ def salvar_no_supabase(vagas):
     print(f"Enviando {len(vagas)} vagas para o Supabase...")
     for vaga in vagas:
         try:
-            # Insere no Supabase
             supabase.table("vagas").insert(vaga).execute()
         except Exception as e:
-            # Evita erros de duplicação caso a vaga já exista
             print(f"Nota: Vaga {vaga['titulo']} já cadastrada ou erro individual: {e}")
 
 if __name__ == "__main__":
     print("Iniciando rastreamento diário de vagas...")
     vagas_gupy = buscar_vagas_gupy()
-    
     print(f"Total de vagas mapeadas: {len(vagas_gupy)}")
     salvar_no_supabase(vagas_gupy)
     print("Processo concluído com sucesso!")
