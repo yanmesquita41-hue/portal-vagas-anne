@@ -9,15 +9,13 @@ SERPAPI_KEY = "ea4f413bd1cbe50410cb2d7ccca035e2a74781e45f77b5c3e649e9152d12aecb"
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# Termos focados nas regiões industriais (Campinas, Jundiaí, Sorocaba, SJC, SP)
+# Termos focados diretamente nos cargos de alta relevância industrial
 TERMOS_BUSCA = [
-    "PCP Campinas", "Supply Chain Jundiaí", "Planejador de Produção Sorocaba", 
-    "Demand Planner São Paulo", "Logística Indaiatuba", "S&OP São José dos Campos",
-    "Analista de Logística Campinas", "Gerente de PCP São Paulo",
-    "PCP Bosch", "Supply Chain Embraer", "Logística Toyota"
+    "PCP", "Supply Chain", "Planejador de Produção", 
+    "Demand Planner", "Logística Industrial", "S&OP", "Analista de PCP"
 ]
 
-# Domínios e plataformas confiáveis permitidas
+# Plataformas e domínios oficiais permitidos
 DOMINIOS_VALIDOS = [
     "bosch.com", "toyota.com", "3m.com", "embraer.com", "nestle.com", 
     "gm.com", "deere.com", "zf.com", "jnj.com", "coca-colafemsa.com", "gupy.io"
@@ -48,11 +46,11 @@ def buscar_vagas_inteligente():
         print("Erro: SERPAPI_KEY não configurada.")
         return vagas_coletadas
 
-    print("Iniciando varredura inteligente no Google Jobs (últimos 7 dias)...")
+    print("Iniciando varredura ampla no Google Jobs (últimos 7 dias)...")
     
     for termo in TERMOS_BUSCA:
-        # tbs=qdr:w garante apenas vagas da última semana
-        url = f"https://serpapi.com/search.json?engine=google_jobs&q={quote_plus(termo)}&tbs=qdr:w&hl=pt-BR&api_key={SERPAPI_KEY}"
+        # Busca focada no estado de São Paulo / região industrial sem travar o termo na URL
+        url = f"https://serpapi.com/search.json?engine=google_jobs&q={quote_plus(termo + ' São Paulo')}&tbs=qdr:w&hl=pt-BR&api_key={SERPAPI_KEY}"
         
         try:
             res = requests.get(url, timeout=15)
@@ -81,7 +79,6 @@ def buscar_vagas_inteligente():
                                 link = candidate_link
                                 break
                                 
-                    # Se mesmo assim não houver link seguro, ignora a vaga
                     if not link:
                         continue
                         
