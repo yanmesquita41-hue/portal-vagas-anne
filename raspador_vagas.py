@@ -8,8 +8,8 @@ SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "sb_publishable_XU_qqEJD90xA02LKWC
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# Termos principais da indústria
-TERMOS_BUSCA = ["PCP", "Supply Chain", "Logistica", "Planejador", "SOP"]
+# Termos focados para a Anne
+TERMOS_BUSCA = ["PCP", "Supply Chain", "Logística", "Planejador", "S&OP"]
 
 def calcular_match_score(descricao_vaga, titulo_vaga):
     score = 60
@@ -29,28 +29,40 @@ def limpar_tabela():
     except Exception as e:
         print(f"Erro ao limpar tabela: {e}")
 
-def buscar_vagas():
+def buscar_vagas_gupy_central():
     vagas_coletadas = []
-    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Accept": "application/json"
+    }
 
-    print("Iniciando varredura unificada na Gupy...")
+    print("Consultando a API centralizada da Gupy para o estado de São Paulo...")
 
     for termo in TERMOS_BUSCA:
-        url = f"https://portal.gupy.io/api/v1/jobs?jobName={quote_plus(termo)}&limit=10"
+        # Endpoint central oficial da Gupy filtrando por nome e limitando resultados
+        url = f"https://portal.gupy.io/api/v1/jobs?jobName={quote_plus(termo)}&state=São%20Paulo&limit=20"
+        
         try:
             response = requests.get(url, headers=headers, timeout=15)
             if response.status_code == 200:
-                resultados = response.json().get("data", [])
-                print(f"-> Termo '{termo}': {len(resultados)} vagas encontradas.")
+                dados = response.json()
+                resultados = dados.get("data", [])
+                print(f"-> Termo '{termo}': {len(resultados)} vagas encontradas em SP.")
                 
                 for item in resultados:
                     titulo = item.get("name", "")
                     empresa = item.get("careerPageName", "Indústria / Empresa")
-                    cidade = item.get("city", "") or "São Paulo"
-                    estado = item.get("state", "") or "SP"
+                    cidade = item.get("city", "São Paulo")
+                    estado = item.get("state", "SP")
                     link = item.get("jobUrl", "")
                     
-                    descricao = f"Vaga oficial da Gupy para {titulo} na empresa {empresa} em {cidade}-{estado}."
+                    descricao = item.get("description", "")
+                    if len(descricao) > 300:
+                        descricao = descricao[:300] + "..."
+                    
+                    if not descricao:
+                        descricao = f"Vaga oficial na empresa {empresa} para o cargo de {titulo}."
+
                     score, tags = calcular_match_score(descricao, titulo)
 
                     if link:
@@ -63,25 +75,28 @@ def buscar_vagas():
                             "link_da_vaga": link,
                             "descricao": descricao
                         })
+            else:
+                print(f"Erro ao consultar Gupy para '{termo}': Status {response.status_code}")
         except Exception as e:
-            print(f"Erro ao buscar '{termo}': {e}")
+            print(f"Erro de conexão para '{termo}': {e}")
 
     # Remove duplicatas
     vagas_unicas = {v['titulo'] + v['empresa']: v for v in vagas_coletadas}.values()
     return list(vagas_unicas)
 
 if __name__ == "__main__":
-    vagas = buscar_vagas()
-    print(f"Total de vagas válidas unicas: {len(vagas)}")
+    vagas = buscar_vagas_gupy_central()
+    print(f"Total de vagas únicas reais coletadas: {len(vagas)}")
     
     if vagas:
         limpar_tabela()
-        print("Salvando novas vagas no Supabase...")
+        print("Salvando novas vagas reais no Supabase...")
         for vaga in vagas:
             try:
                 supabase.table("vagas").insert(vaga).execute()
+                print(f"Inserida: {vaga['titulo']} ({vaga['empresa']})")
             except Exception as e:
                 print(f"Erro ao inserir vaga: {e}")
-        print("Processo concluído e banco atualizado!")
+        print("Processo concluído com sucesso!")
     else:
-        print("Nenhuma vaga foi coletada nesta execução.")
+        print("Nenhuma vaga retornada nesta execução.")
