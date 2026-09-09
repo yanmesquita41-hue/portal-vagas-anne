@@ -1,97 +1,125 @@
 import os
 import requests
+from datetime import datetime, timedelta
 from supabase import create_client, Client
 
+# Pega as chaves de forma segura do ambiente (GitHub Secrets ou local)
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://lqgkytfaaisubgemgved.supabase.co")
-SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "sb_publishable_XU_qqEJD90xA02LKWC1Xhg_Aj0xQ...")
-APIFY_TOKEN = os.environ.get("APIFY_API_TOKEN", "")
+SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "sb_publishable_XU_qqEJD90xA02LKWClXhg_Aj0xQi0n")
+APP_ID = os.environ.get("ADZUNA_APP_ID", "230cd1dd")
+APP_KEY = os.environ.get("ADZUNA_APP_KEY", "e14f765d02d589d33641de76193782af")
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-def calcular_match_score(descricao_vaga, titulo_vaga):
-    score = 60
-    texto_completo = f"{titulo_vaga} {descricao_vaga}".lower()
-    tags = []
-    for kw in ["sap", "s&op", "mrp", "lean", "power bi", "excel", "kaizen"]:
-        if kw in texto_completo:
-            score += 10
-            tags.append(kw.upper())
-    # Garante que sempre retorna uma lista (ideal para o tipo text[] do Supabase)
-    return min(score, 100), tags if tags else ["Supply Chain", "PCP"]
-
 def limpar_tabela():
-    print("Limpando registros antigos do Supabase...")
     try:
-        supabase.table("vagas").delete().neq("id", "00000000-0000-0000-0000-000000000000").execute()
+        supabase.table("vagas").delete().neq("titulo", "IGNORAR_TUDO_XYZ").execute()
         print("Tabela limpa com sucesso.")
     except Exception as e:
         print(f"Erro ao limpar tabela: {e}")
 
-def buscar_vagas_apify():
+def buscar_vagas_completas():
+    print("Iniciando varredura oficial via Adzuna API (SP, SC, PR - Pleno/Sênior)...")
     vagas_coletadas = []
-    actor_id = "apify~google-search-scraper"
-    url_apify = f"https://api.apify.com/v2/acts/{actor_id}/run-sync-get-dataset-items?token={APIFY_TOKEN}"
     
-    payload = {
-        "queries": "vaga pcp sao paulo site:gupy.io OR vaga supply chain sao paulo",
-        "maxPagesPerQuery": 1,
-        "resultsPerPage": 10
-    }
+    termos_chave = [
+        "PCP", "Supply Chain", "Planejador de Produção", 
+        "Analista de Materiais", "S&OP", "MRP", "Logística"
+    ]
     
-    print("Disparando extração via Apify...")
-    try:
-        response = requests.post(url_apify, json=payload, timeout=60)
-        print(f"Status HTTP Apify: {response.status_code}")
-        
-        if response.status_code in [200, 201]:
-            dados = response.json()
-            print(f"-> Itens retornados pelo Apify: {len(dados)}")
+    cidades_alvo = [
+        "Campinas", "Jundiaí", "Sorocaba", "Indaiatuba", 
+        "São José dos Campos", "Piracicaba", "Joinville", "Curitiba"
+    ]
+    
+    # Data limite de 30 dias atrás
+    limite_data = datetime.now() - timedelta(days=30)
+    
+    for local in cidades_alvo:
+        for termo in termos_chave:
+            url = "https://api.adzuna.com/v1/api/jobs/br/search/1"
+            params = {
+                "app_id": APP_ID,
+                "app_key": APP_KEY,
+                "results_per_page": 15,
+                "what": termo,
+                "where": local,
+                "content-type": "application/json"
+            }
             
-            for item in dados:
-                organic = item.get("organicResults", [])
-                for result in organic:
-                    titulo = result.get("title", "Oportunidade Industrial")
-                    link = result.get("url", "")
-                    descricao = result.get("description", "Vaga indexada via Apify.")
+            try:
+                response = requests.get(url, params=params, timeout=12)
+                if response.status_code == 200:
+                    dados = response.json()
+                    resultados = dados.get("results", [])
                     
-                    empresa = "Empresa Parceira SP"
-                    if "gupy.io" in link:
-                        partes = link.split("/")
-                        if len(partes) > 2:
-                            empresa = partes[2].split(".")[0].capitalize()
+                    for item in resultados:
+                        titulo = item.get("title", "")
+                        empresa = item.get("company", {}).get("display_name", "Indústria / Empresa")
+                        link = item.get("redirect_url", "")
+                        descricao = item.get("description", "").lower()
+                        data_criacao_str = item.get("created", "")
+                        
+                        t_lower = titulo.lower()
+                        
+                        # --- FILTRO 1: Remover Estágios, Trainees e Assistentes ---
+                        termos_proibidos = ["estágio", "estagiario", "estagiária", "trainee", "assistente", "auxiliar"]
+                        if any(termo_proibido in t_lower for termo_proibido in termos_proibidos):
+                            continue
                             
-                    score, tags = calcular_match_score(descricao, titulo)
-                    
-                    if link:
-                        vagas_coletadas.append({
-                            "titulo": titulo,
-                            "empresa": empresa,
-                            "cidade": "São Paulo - SP",
-                            "match_score": score,
-                            "tags": tags, # Enviando como lista para a coluna text[] do Supabase
-                            "link_da_vaga": link,
-                            "descricao": descricao[:300]
-                        })
-        else:
-            print(f"Erro na execução do Apify: {response.text}")
-    except Exception as e:
-        print(f"Erro de conexão com o Apify: {e}")
+                        # --- FILTRO 2: Validar se tem no máximo 30 dias ---
+                        is_recente = True
+                        if data_criacao_str:
+                            try:
+                                data_vaga = datetime.fromisoformat(data_criacao_str.replace("Z", "+00:00").split("+")[0])
+                                if data_vaga < limite_data:
+                                    is_recente = False
+                            except:
+                                pass
+                                
+                        if not is_recente:
+                            continue
+                            
+                        # Cálculo de Match Score otimizado
+                        score = 80
+                        if "pcp" in t_lower or "planejador" in t_lower: score += 10
+                        if "supply chain" in t_lower or "s&op" in t_lower: score += 10
+                        if "sap" in descricao or "mrp" in descricao: score += 5
 
+                        cidade_formatada = f"{local} - SP"
+                        if local == "Joinville":
+                            cidade_formatada = "Joinville - SC"
+                        elif local == "Curitiba":
+                            cidade_formatada = "Curitiba - PR"
+
+                        if link and titulo and score >= 85:
+                            vaga_item = {
+                                "titulo": titulo,
+                                "empresa": empresa,
+                                "cidade": cidade_formatada,
+                                "match_score": min(score, 100),
+                                "link_da_vaga": link
+                            }
+                            if vaga_item not in vagas_coletadas:
+                                vagas_coletadas.append(vaga_item)
+            except Exception as e:
+                print(f"Erro na busca por '{termo}' em '{local}': {e}")
+                
+    print(f"Total de vagas válidas selecionadas: {len(vagas_coletadas)}")
     return vagas_coletadas
 
 if __name__ == "__main__":
-    vagas = buscar_vagas_apify()
-    print(f"Total de vagas válidas processadas: {len(vagas)}")
+    vagas = buscar_vagas_completas()
     
     if vagas:
         limpar_tabela()
-        print("Salvando novas vagas reais no Supabase...")
+        print("Enviando vagas filtradas para o Supabase...")
         for vaga in vagas:
             try:
-                resposta = supabase.table("vagas").insert(vaga).execute()
-                print(f"Inserida com sucesso: {vaga['titulo']} ({vaga['empresa']})")
+                supabase.table("vagas").insert(vaga).execute()
+                print(f"[SUCESSO] {vaga['empresa']} | {vaga['titulo']} ({vaga['cidade']})")
             except Exception as e:
-                print(f"ERRO DO SUPABASE AO INSERIR: {e}")
+                print(f"[ERRO ao inserir]: {e}")
         print("Processo concluído com sucesso!")
     else:
-        print("Nenhuma vaga retornada pelo Apify nesta execução.")
+        print("Nenhuma vaga atendeu aos critérios rigorosos nesta execução.")
