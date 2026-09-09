@@ -50,7 +50,6 @@ def buscar_vagas_indeed():
             if response.status_code == 200:
                 soup = BeautifulSoup(response.text, 'html.parser')
                 
-                # Procura os cards de vagas na página do Indeed
                 cards = soup.find_all('div', class_='cardOutline') or soup.find_all('div', class_='job_seen_beacon')
                 print(f"-> Encontrados {len(cards)} cards brutos para '{cargo}'.")
                 
@@ -59,15 +58,14 @@ def buscar_vagas_indeed():
                         # Extrai Título
                         title_elem = card.find('h2', class_='jobTitle') or card.find('a', class_='jcs-JobTitle')
                         titulo = title_elem.get_text(strip=True) if title_elem else "Oportunidade Industrial"
-                        # Limpa textos indesejados comuns no Indeed
                         titulo = titulo.replace("Acessível PCD", "").replace("Novo", "")
 
-                        # Extrai Empresa
-                        company_elem = card.find('span', class_='companyName') or card.find('span', data-testid='company-name')
+                        # Extrai Empresa (Corrigido para usar dicionário em atributos com hífen)
+                        company_elem = card.find('span', class_='companyName') or card.find('span', {'data-testid': 'company-name'})
                         empresa = company_elem.get_text(strip=True) if company_elem else "Indústria / Empresa"
 
                         # Extrai Local
-                        location_elem = card.find('div', class_='companyLocation') or card.find('div', data-testid='text-location')
+                        location_elem = card.find('div', class_='companyLocation') or card.find('div', {'data-testid': 'text-location'})
                         local = location_elem.get_text(strip=True) if location_elem else "São Paulo - SP"
 
                         # Extrai Link
@@ -97,7 +95,6 @@ def buscar_vagas_indeed():
         except Exception as e:
             print(f"Erro ao acessar Indeed para '{cargo}': {e}")
 
-    # Remove duplicatas
     vagas_unicas = {v['titulo'] + v['empresa']: v for v in vagas_coletadas}.values()
     return list(vagas_unicas)
 
